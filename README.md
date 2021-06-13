@@ -1,5 +1,7 @@
 # disaslr
 
+disable ASLR(Address Space Layout Randomization)
+
 ## how to build
 ``` bash
 g++ -std=c++11 disaslr.cpp -o disaslr
