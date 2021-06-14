@@ -10,6 +10,10 @@
 #include <iostream>
 #include <vector>
 
+#if __linux__
+#include <sys/personality.h>
+#endif
+
 bool IsExecutableFile(std::string filepath) {
   struct stat sb;
   return (stat(filepath.c_str(), &sb) == 0) && (sb.st_mode & S_IXOTH);
@@ -69,36 +73,50 @@ int main(int argc, char* argv[]) {
   posix_spawn_file_actions_init(&actions);
   posix_spawnattr_init(&attrs);
 
+  int ret;
+#if __APPLE__
 #ifndef _POSIX_SPAWN_DISABLE_ASLR
 #define _POSIX_SPAWN_DISABLE_ASLR 0x0100
 #endif
-  ps_flags |= POSIX_SPAWN_SETEXEC;
-  ps_flags |= _POSIX_SPAWN_DISABLE_ASLR;
+  ps_flags |= POSIX_SPAWN_SETEXEC;        // Mac OS X only
+  ps_flags |= _POSIX_SPAWN_DISABLE_ASLR;  // Mac OS X only
 
-  int ret;
   ret = posix_spawnattr_setflags(&attrs, ps_flags);
   if (ret != 0) {
-    std::cerr << "failed posix_spawnattr_setflags: " << std::strerror(errno)
+    std::cerr << "failed posix_spawnattr_setflags: " << std::strerror(ret)
               << std::endl;
     return 1;
   }
+#elif __linux__
+  // get original setting
+  int personality_orig = personality(0xffffffff);
+  if (personality_orig == -1) {
+    std::cerr << "failed posix_spawn: " << std::strerror(errno) << std::endl;
+    return 1;
+  }
+  int no_aslr_personality = personality_orig | ADDR_NO_RANDOMIZE;
+  ret                     = personality(no_aslr_personality);
+  if (ret == -1) {
+    std::cerr << "failed posix_spawn: " << std::strerror(errno) << std::endl;
+    return 1;
+  }
+#endif
 
   pid_t pid;
-  int spawned_pid_ret =
-      posix_spawn(&pid, args[0], &actions, &attrs, args, nullptr);
-  if (spawned_pid_ret != 0) {
-    std::cerr << "failed posix_spawn: " << std::strerror(errno) << std::endl;
+  ret = posix_spawn(&pid, args[0], &actions, &attrs, args, nullptr);
+  if (ret != 0) {
+    std::cerr << "failed posix_spawn: " << std::strerror(ret) << std::endl;
   }
   ret = posix_spawnattr_destroy(&attrs);
   if (ret != 0) {
-    std::cerr << "failed posix_spawnattr_destroy: " << std::strerror(errno)
+    std::cerr << "failed posix_spawnattr_destroy: " << std::strerror(ret)
               << std::endl;
   }
 
   ret = posix_spawn_file_actions_destroy(&actions);
   if (ret != 0) {
     std::cerr << "failed posix_spawn_file_actions_destroy: "
-              << std::strerror(errno) << std::endl;
+              << std::strerror(ret) << std::endl;
   }
   return 0;
 }
